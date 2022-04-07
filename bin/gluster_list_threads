@@ -1,0 +1,97 @@
+#! /bin/bash
+
+function f_arg()
+{
+	local a="$1"; shift
+	while [ $# -gt 0 -a "${1%%=*}" != "$a" ]; do
+		shift
+	done
+	if [ $# -gt 0 ]; then
+		if [ "${1//=*/=}" = "${a}=" ]; then
+			echo "${1#*=}"
+		else
+			echo "$2"
+		fi
+		return 0
+	fi
+	return 1
+}
+
+function in_array()
+{
+	local needle="$1"; shift
+
+	while [ $# -gt 0 ]; do
+		[ "$1" = "$needle" ] && return 0
+		shift
+	done
+	return 1
+}
+
+for p in $(pgrep glusterfs); do
+	IFS=$'\n' read -rd '' -a args < <(tr '\0' '\n' < "/proc/$p/cmdline")
+	#echo "${args[@]}" >&2
+
+	if procname=$(f_arg --process-name "${args[@]}"); then
+		case "${procname}" in
+			brick)
+				procname+=":$(f_arg --brick-name "${args[@]}")"
+				;;
+			fuse)
+				procname+=":$(f_arg --volfile-server "${args[@]}"):$(f_arg --volfile-id "${args[@]}")-${args[-1]}"
+				;;
+		esac
+	else
+		procname=$(basename "${args[0]}")
+	fi
+	tids=(/proc/${p}/task/*)
+	echo "${procname} (pid=$p): ${#tids[@]} threads"
+	
+	thread_groups=()
+	for t in "${tids[@]}"; do
+		Name=
+		State=
+		exec 3<"${t}/status"
+		while read vn value <&3; do
+			case "${vn%:}" in
+				Name|State)
+					eval "$(printf "%s=%q\n" "${vn%:}" "${value}")"
+					;;
+			esac
+		done
+		exec 3<&-
+
+		if [ -z "$Name" -o -z "$State" ]; then
+			echo "Error obtaining thread details for $t." >&2
+			continue
+		fi
+
+		shortname=$(sed -re 's:/?[0-9]*$::' <<<"${Name}")
+		evalname=$(tr -d -c 'A-Za-z_0-9' <<<"${shortname}")
+		if ! in_array "${shortname}" "${thread_groups[@]}"; then
+			thread_groups+=("${shortname}")
+			for s in R D S T Z; do
+				eval "state_${evalname}_${s}=0"
+			done
+			eval "tids_${evalname}=()"
+		fi
+		eval "tids_${evalname}+=(${t##*/})"
+		eval "(( ++state_${evalname}_${State%% *} ))"
+		#echo "  ${t##*/}: $Name ($shortname): $State"
+	done
+
+	for shortname in "${thread_groups[@]}"; do
+		evalname=$(tr -d -c 'A-Za-z_0-9' <<<"${shortname}")
+		declare -n ntids="tids_${evalname}"
+		echo -n "  - ${shortname} (${#ntids[@]}):"
+		f=1
+		for s in S R D T Z; do
+			declare -n sc="state_${evalname}_${s}"
+			if [ $sc -gt 0 ]; then
+				#[ -n "$f" ] && f= || echo -n ","
+				echo -n " ${s} x ${sc}"
+			fi
+		done
+		echo .
+	done
+done

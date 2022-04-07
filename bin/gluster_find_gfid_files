@@ -1,0 +1,34 @@
+#! /bin/bash
+
+brick="$1"
+
+[ -z "${brick}" ] && echo "USAGE: $0 brick gfid [...]" && exit 1
+
+if [ ! -d "${brick}" -o ! -d "${brick}/.glusterfs" ]; then
+	echo "${brick} is not a glusterfs brick." >&2
+	exit 1
+fi
+
+shift
+
+find_args=()
+
+for c_gfid in "$@"; do
+	gfid=$(sed -nre 's/^(<?gfid:)?([0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12})>?$/\2/p' <<<"${c_gfid}")
+	if [ -z "${gfid}" ]; then
+		echo "${c_gfid} is not a valid gfid - skipping" >&2
+	else
+		gfid_path="${brick}/.glusterfs/${gfid:0:2}/${gfid:2:2}/${gfid}"
+		! [ -r "${gfid_path}" ] && echo "Invalid gfid (${gfid_path} doesn't exist)." && continue
+		case "$(stat -c%F "${gfid_path}")" in
+			regular\ file|regular\ empty\ file)
+				find_args+=(-o -samefile "${brick}/.glusterfs/${gfid:0:2}/${gfid:2:2}/${gfid}")
+				;;
+			*)
+				echo "Not handling GFIDs of type $(stat -c%F "${gfid_path}")" >&2
+				;;
+		esac
+	fi
+done
+
+[ "${#find_args[@]}" -gt 0 ] && find "${brick}" -name .glusterfs -prune "${find_args[@]}"

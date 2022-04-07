@@ -1,0 +1,33 @@
+#! /bin/bash
+
+for f in "$@"; do
+	! [ -f "${f}" ] && echo "$f: not a file." && continue
+
+	f="$(readlink -f $f)"
+	echo "Processing $f"
+
+	d="$(dirname "$f")"
+	while [ ! -d "${d}/.glusterfs" ]; do
+		d="$(dirname "$d")"
+		[ "$d" = / ] && break
+	done
+
+	[ "$d" = "/" ] && echo "Not on a glusterfs brick." && continue
+
+	echo "brick: $d"
+
+	lcount="$(stat -c%h "$f")"
+	if [ "$lcount" != 2 ]; then
+		echo "link count != 2, not touching, you can manually rm this file if it really isn't needed - which will just decrement the link count"
+		continue
+	fi
+
+	gfid="$(getfattr -n trusted.gfid -d -e hex "${f}" | sed -nre 's/^.*=0x(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/p')"
+	if [ -z "${gfid}" ]; then
+		echo "Error obtaining gfid."
+		continue
+	fi
+
+	echo "Removing: ${f} ${d}/.glusterfs/${gfid:0:2}/${gfid:2:2}/${gfid}"
+	rm "${f}" "${d}/.glusterfs/${gfid:0:2}/${gfid:2:2}/${gfid}"
+done

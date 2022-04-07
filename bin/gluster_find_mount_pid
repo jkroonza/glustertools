@@ -1,0 +1,39 @@
+#! /bin/bash
+
+function f_arg()
+{
+	local a="$1"; shift
+	while [ $# -gt 0 -a "${1%%=*}" != "$a" ]; do
+		shift
+	done
+	if [ $# -gt 0 ]; then
+		if [ "${1//=*/=}" = "${a}=" ]; then
+			echo "${1#*=}"
+		else
+			echo "$2"
+		fi
+		return 0
+	fi
+	return 1
+}
+
+function in_array()
+{
+	local needle="$1"; shift
+
+	while [ $# -gt 0 ]; do
+		[ "$1" = "$needle" ] && return 0
+		shift
+	done
+	return 1
+}
+
+for p in $(pgrep glusterfs); do
+	IFS=$'\n' read -rd '' -a args < <(tr '\0' '\n' < "/proc/$p/cmdline")
+	#echo "${args[@]}" >&2
+
+	procname=$(f_arg --process-name "${args[@]}")
+	[ "${procname}" != "fuse" ] && continue
+
+	in_array "${args[-1]}" "$@" && echo $p
+done
