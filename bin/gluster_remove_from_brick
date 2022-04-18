@@ -3,7 +3,7 @@
 for f in "$@"; do
 	! [ -f "${f}" ] && echo "$f: not a file." && continue
 
-	f="$(readlink -f $f)"
+	f="$(readlink -f "$f")"
 	echo "Processing $f"
 
 	d="$(dirname "$f")"
