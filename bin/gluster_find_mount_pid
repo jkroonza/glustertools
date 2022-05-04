@@ -28,6 +28,7 @@ function in_array()
 	return 1
 }
 
+ex=1
 for p in $(pgrep glusterfs); do
 	IFS=$'\n' read -rd '' -a args < <(tr '\0' '\n' < "/proc/$p/cmdline")
 	#echo "${args[@]}" >&2
@@ -35,5 +36,7 @@ for p in $(pgrep glusterfs); do
 	procname=$(f_arg --process-name "${args[@]}")
 	[ "${procname}" != "fuse" ] && continue
 
-	in_array "${args[-1]}" "$@" && echo $p
+	in_array "${args[-1]}" "$@" && echo $p && ex=0
 done
+
+exit $ex
